@@ -1,0 +1,2319 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Interview Monitoring API",
+    "description": "\nREST API for the interview-monitoring platform: a candidate's phone streams its camera through\nLiveKit, and the interviewer's dashboard watches and analyzes it live.\n\n### Conventions\n* Bodies are **JSON** (`Content-Type: application/json`, max 64 KB). JSON fields are **camelCase**.\n* Errors always look like `{\"error\": {\"code\", \"message\", \"details?\"}}`.\n* Timestamps are ISO 8601 UTC with milliseconds (`2030-01-02T10:00:00.000Z`).\n\n### Authentication\n* **Interviewer / admin** — `POST /api/auth/login` (or `register`) returns a `token` and sets the httpOnly\n  `im_session` cookie. Send either `Authorization: Bearer <token>` or the cookie. Sessions last 8 hours.\n* **Candidate** — `POST /api/interviews/{id}/join` returns a token scoped to **one** interview (4 hours),\n  sent as `Authorization: Bearer <token>`.\n\n### Common status codes\n`400` invalid input · `401` not signed in · `403` no access · `404` no match (also a wrong candidate name) ·\n`410` interview ended · `413`/`415` bad body · `429` rate limited · `503` LiveKit/database unreachable.\n",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/auth/register": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Create an interviewer account",
+        "description": "Creates an `INTERVIEWER` (or `ADMIN` when `adminCode` matches the server's code), signs the user in and sets the `im_session` cookie. Limited to 10 per hour per IP.",
+        "operationId": "register_api_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (`email_taken`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Sign in",
+        "description": "Returns a session token and sets the `im_session` cookie. A wrong password and an unknown email return the same error. Limited to 30 per 10 minutes per IP and 10 per 10 minutes per email.",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Sign out everywhere",
+        "description": "Invalidates **every** session this user holds (not just the current one) and clears the cookie.",
+        "operationId": "logout_api_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Current user",
+        "operationId": "me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/interviews": {
+      "get": {
+        "tags": [
+          "Interviews"
+        ],
+        "summary": "List interviews",
+        "description": "Interviewers see their own interviews; admins see everyone's. Newest first, at most 200.",
+        "operationId": "list_interviews_api_interviews_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Interviews"
+        ],
+        "summary": "Create an interview",
+        "description": "Generates an unguessable, typeable interview ID (e.g. `7K2M-9QXT-4HVB`) and a LiveKit room name.",
+        "operationId": "create_interview_api_interviews_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInterviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/interviews/{id}": {
+      "get": {
+        "tags": [
+          "Interviews"
+        ],
+        "summary": "Get an interview",
+        "description": "Accepts an interviewer/admin session **or** the candidate token from `join`. Interviewers get the full `InterviewDTO` (including `monitoringStatus`); candidates get the reduced `CandidateInterviewDTO`. A candidate token only opens its own interview.",
+        "operationId": "get_interview_api_interviews__id__get",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InterviewEnvelope"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CandidateInterviewEnvelope"
+                    }
+                  ],
+                  "title": "Response Get Interview Api Interviews  Id  Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/interviews/{id}/join": {
+      "post": {
+        "tags": [
+          "Interviews"
+        ],
+        "summary": "Candidate joins (public)",
+        "description": "The candidate proves access with the interview ID and their name and must accept the monitoring notice (`consentAccepted: true`). Name matching ignores case and extra spaces; the ID tolerates lower case, spaces and look-alike letters. A wrong name gets the **same** 404 as a wrong ID, so IDs can't be discovered. Returns a candidate token scoped to this interview. Limited to 20 per 10 minutes per IP.",
+        "operationId": "join_interview_api_interviews__id__join_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The interview has ended (`interview_ended`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/interviews/{id}/end": {
+      "post": {
+        "tags": [
+          "Interviews"
+        ],
+        "summary": "End the session for everyone",
+        "description": "Tells the room, then deletes it so media stops immediately. Candidate tokens stop working because the status is checked on every request. Status becomes `COMPLETED` if it had started, otherwise `CANCELLED`. Calling it twice is harmless.",
+        "operationId": "end_interview_api_interviews__id__end_post",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InterviewEnvelope"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CandidateInterviewEnvelope"
+                    }
+                  ],
+                  "title": "Response End Interview Api Interviews  Id  End Post"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/interviews/{id}/events": {
+      "get": {
+        "tags": [
+          "Interviews"
+        ],
+        "summary": "Interview timeline",
+        "description": "Events in chronological order (oldest first). Only the owner or an admin. Use `after` to poll for new events.",
+        "operationId": "list_events_api_interviews__id__events_get",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events created after this ISO time.",
+              "title": "After"
+            },
+            "description": "Only events created after this ISO time."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/livekit/token": {
+      "post": {
+        "tags": [
+          "LiveKit"
+        ],
+        "summary": "Get a LiveKit room token",
+        "description": "Issues a short-lived token for the interview's room (creating the room if needed). **A candidate's first request here starts the interview** (`SCHEDULED` → `ACTIVE`). Candidates always get the same identity (`candidate-<id>`), so a second device replaces the first. Candidates may publish camera and microphone only; interviewers are subscribe-only; nobody may publish data. Limited to 30 per minute per user.",
+        "operationId": "livekit_token_api_livekit_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveKitTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The interview has ended (`interview_ended`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/livekit/webhook": {
+      "post": {
+        "tags": [
+          "LiveKit"
+        ],
+        "summary": "LiveKit webhook (called by LiveKit)",
+        "description": "LiveKit's own view of the session, independent of what any client reports. Not for the frontend. The request must be signed by LiveKit (the `Authorization` header carries a JWT covering the raw body). Redelivered webhooks don't create duplicate events.",
+        "operationId": "livekit_webhook_api_livekit_webhook_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/monitoring/events": {
+      "post": {
+        "tags": [
+          "Monitoring"
+        ],
+        "summary": "Report an event",
+        "description": "Clients pick an `eventType` from an allowlist; the wording and severity come from the server's catalog, so clients can't author event text.\n\n- Candidate may report: `camera_permission_error`, `calibration_passed`, `candidate_reconnecting`, `candidate_reconnected`, `network_unstable`, `network_recovered`, `app_backgrounded`, `app_foregrounded`.\n- Interviewer may report: `video_stopped`, `video_resumed`, `network_unstable`, `network_recovered`.\n\nLimited to 60 per minute per interview and side.",
+        "operationId": "report_event_api_monitoring_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The interview has ended (`interview_ended`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/monitoring/status": {
+      "post": {
+        "tags": [
+          "Monitoring"
+        ],
+        "summary": "Report monitoring status",
+        "description": "Phones report `calibration`; once streaming starts, the interviewer's dashboard analyzes the received video and reports `stream_analysis`. Each side is held to its own `source` (403 otherwise). Stream-analysis changes can add timeline events (`screen_detected`, `screen_lost`, `visibility_dropped`, `positioning_corrected`), returned in `events`. Limited to 120 per minute per interview and side.",
+        "operationId": "report_status_api_monitoring_status_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The interview has ended (`interview_ended`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/analytics/overview": {
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Dashboard overview",
+        "description": "Totals by status, interviews created per day for the last 14 days (UTC, oldest first) and event counts by severity for the same period. Interviewers see their own numbers; admins see everyone's.",
+        "operationId": "overview_api_analytics_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsOverview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health check",
+        "description": "Public. Checks the database connection; use it for load-balancer / platform health checks.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalyticsOverview": {
+        "properties": {
+          "totals": {
+            "$ref": "#/components/schemas/AnalyticsTotals"
+          },
+          "interviewsByDay": {
+            "items": {
+              "$ref": "#/components/schemas/DayCount"
+            },
+            "type": "array",
+            "title": "Interviewsbyday"
+          },
+          "eventsBySeverity": {
+            "items": {
+              "$ref": "#/components/schemas/SeverityCount"
+            },
+            "type": "array",
+            "title": "Eventsbyseverity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "totals",
+          "interviewsByDay",
+          "eventsBySeverity"
+        ],
+        "title": "AnalyticsOverview"
+      },
+      "AnalyticsTotals": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "completed": {
+            "type": "integer",
+            "title": "Completed"
+          },
+          "upcoming": {
+            "type": "integer",
+            "title": "Upcoming"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "active",
+          "completed",
+          "upcoming"
+        ],
+        "title": "AnalyticsTotals"
+      },
+      "AuthResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "Session token. Also set as the httpOnly `im_session` cookie."
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserDTO"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "user"
+        ],
+        "title": "AuthResponse"
+      },
+      "CandidateInterviewDTO": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "candidateName": {
+            "type": "string",
+            "title": "Candidatename"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "ACTIVE",
+              "COMPLETED",
+              "CANCELLED"
+            ],
+            "title": "Status"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "candidateName",
+          "status",
+          "startedAt",
+          "endedAt"
+        ],
+        "title": "CandidateInterviewDTO",
+        "description": "What a candidate may see about their own interview."
+      },
+      "CandidateInterviewEnvelope": {
+        "properties": {
+          "interview": {
+            "$ref": "#/components/schemas/CandidateInterviewDTO"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interview"
+        ],
+        "title": "CandidateInterviewEnvelope"
+      },
+      "CreateInterviewRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "candidateName": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Candidatename"
+          },
+          "scheduledAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduledat",
+            "description": "ISO 8601 date-time with a UTC offset, e.g. 2030-01-02T10:00:00Z."
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "candidateName"
+        ],
+        "title": "CreateInterviewRequest"
+      },
+      "DayCount": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "count"
+        ],
+        "title": "DayCount"
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "examples": [
+              "unauthorized"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse"
+      },
+      "EventEnvelope": {
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/MonitoringEventDTO"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event"
+        ],
+        "title": "EventEnvelope"
+      },
+      "EventListResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/MonitoringEventDTO"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events"
+        ],
+        "title": "EventListResponse"
+      },
+      "EventRequest": {
+        "properties": {
+          "interviewId": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Interviewid"
+          },
+          "eventType": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Eventtype"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "Up to 16 keys (names ≤ 60 chars); string values ≤ 300 chars."
+          }
+        },
+        "type": "object",
+        "required": [
+          "interviewId",
+          "eventType"
+        ],
+        "title": "EventRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok"
+          }
+        },
+        "type": "object",
+        "title": "HealthResponse"
+      },
+      "InterviewDTO": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "examples": [
+              "7K2M-9QXT-4HVB"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "interviewerId": {
+            "type": "string",
+            "title": "Interviewerid"
+          },
+          "candidateName": {
+            "type": "string",
+            "title": "Candidatename"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "SCHEDULED",
+              "ACTIVE",
+              "COMPLETED",
+              "CANCELLED"
+            ],
+            "title": "Status"
+          },
+          "livekitRoomName": {
+            "type": "string",
+            "title": "Livekitroomname"
+          },
+          "scheduledAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduledat"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "candidateJoinedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidatejoinedat"
+          },
+          "monitoringStatus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MonitoringStatusDTO"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "interviewerId",
+          "candidateName",
+          "status",
+          "livekitRoomName",
+          "scheduledAt",
+          "startedAt",
+          "endedAt",
+          "createdAt",
+          "candidateJoinedAt"
+        ],
+        "title": "InterviewDTO"
+      },
+      "InterviewEnvelope": {
+        "properties": {
+          "interview": {
+            "$ref": "#/components/schemas/InterviewDTO"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interview"
+        ],
+        "title": "InterviewEnvelope"
+      },
+      "InterviewListResponse": {
+        "properties": {
+          "interviews": {
+            "items": {
+              "$ref": "#/components/schemas/InterviewDTO"
+            },
+            "type": "array",
+            "title": "Interviews"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interviews"
+        ],
+        "title": "InterviewListResponse"
+      },
+      "JoinRequest": {
+        "properties": {
+          "candidateName": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Candidatename"
+          },
+          "consentAccepted": {
+            "type": "boolean",
+            "title": "Consentaccepted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "candidateName",
+          "consentAccepted"
+        ],
+        "title": "JoinRequest"
+      },
+      "JoinResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "Candidate session token, scoped to this interview only."
+          },
+          "interview": {
+            "$ref": "#/components/schemas/CandidateInterviewDTO"
+          },
+          "readinessThreshold": {
+            "type": "integer",
+            "title": "Readinessthreshold"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "interview",
+          "readinessThreshold"
+        ],
+        "title": "JoinResponse"
+      },
+      "LiveKitTokenResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "roomName": {
+            "type": "string",
+            "title": "Roomname"
+          },
+          "identity": {
+            "type": "string",
+            "title": "Identity"
+          },
+          "expiresInSeconds": {
+            "type": "integer",
+            "title": "Expiresinseconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "url",
+          "roomName",
+          "identity",
+          "expiresInSeconds"
+        ],
+        "title": "LiveKitTokenResponse"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "MonitoringEventDTO": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "interviewId": {
+            "type": "string",
+            "title": "Interviewid"
+          },
+          "eventType": {
+            "type": "string",
+            "title": "Eventtype"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "INFO",
+              "WARNING",
+              "CRITICAL"
+            ],
+            "title": "Severity"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "interviewId",
+          "eventType",
+          "message",
+          "severity",
+          "createdAt"
+        ],
+        "title": "MonitoringEventDTO"
+      },
+      "MonitoringStatusDTO": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "interviewId": {
+            "type": "string",
+            "title": "Interviewid"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "calibration",
+              "stream_analysis"
+            ],
+            "title": "Source"
+          },
+          "screenDetected": {
+            "type": "boolean",
+            "title": "Screendetected"
+          },
+          "visibilityPercentage": {
+            "type": "integer",
+            "title": "Visibilitypercentage"
+          },
+          "clarity": {
+            "type": "string",
+            "enum": [
+              "good",
+              "fair",
+              "poor"
+            ],
+            "title": "Clarity"
+          },
+          "lighting": {
+            "type": "string",
+            "enum": [
+              "good",
+              "low",
+              "high"
+            ],
+            "title": "Lighting"
+          },
+          "stability": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "moderate",
+              "unstable"
+            ],
+            "title": "Stability"
+          },
+          "alignment": {
+            "type": "string",
+            "enum": [
+              "correct",
+              "off_center",
+              "skewed",
+              "too_close",
+              "too_far",
+              "cut_off",
+              "unknown"
+            ],
+            "title": "Alignment"
+          },
+          "readinessScore": {
+            "type": "integer",
+            "title": "Readinessscore"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "interviewId",
+          "source",
+          "screenDetected",
+          "visibilityPercentage",
+          "clarity",
+          "lighting",
+          "stability",
+          "alignment",
+          "readinessScore",
+          "updatedAt"
+        ],
+        "title": "MonitoringStatusDTO"
+      },
+      "OkResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "OkResponse"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "10 to 72 bytes (bcrypt only reads the first 72)."
+          },
+          "adminCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admincode",
+            "description": "Creates an ADMIN when it matches the server's code."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest"
+      },
+      "SeverityCount": {
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "INFO",
+              "WARNING",
+              "CRITICAL"
+            ],
+            "title": "Severity"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "severity",
+          "count"
+        ],
+        "title": "SeverityCount"
+      },
+      "StatusRequest": {
+        "properties": {
+          "interviewId": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Interviewid"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "calibration",
+              "stream_analysis"
+            ],
+            "title": "Source"
+          },
+          "screenDetected": {
+            "type": "boolean",
+            "title": "Screendetected"
+          },
+          "visibilityPercentage": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Visibilitypercentage"
+          },
+          "clarity": {
+            "type": "string",
+            "enum": [
+              "good",
+              "fair",
+              "poor"
+            ],
+            "title": "Clarity"
+          },
+          "lighting": {
+            "type": "string",
+            "enum": [
+              "good",
+              "low",
+              "high"
+            ],
+            "title": "Lighting"
+          },
+          "stability": {
+            "type": "string",
+            "enum": [
+              "stable",
+              "moderate",
+              "unstable"
+            ],
+            "title": "Stability"
+          },
+          "alignment": {
+            "type": "string",
+            "enum": [
+              "correct",
+              "off_center",
+              "skewed",
+              "too_close",
+              "too_far",
+              "cut_off",
+              "unknown"
+            ],
+            "title": "Alignment"
+          },
+          "readinessScore": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Readinessscore"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interviewId",
+          "source",
+          "screenDetected",
+          "visibilityPercentage",
+          "clarity",
+          "lighting",
+          "stability",
+          "alignment",
+          "readinessScore"
+        ],
+        "title": "StatusRequest"
+      },
+      "StatusResponse": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/MonitoringStatusDTO"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/MonitoringEventDTO"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "events"
+        ],
+        "title": "StatusResponse"
+      },
+      "TokenRequest": {
+        "properties": {
+          "interviewId": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Interviewid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interviewId"
+        ],
+        "title": "TokenRequest"
+      },
+      "UserDTO": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ADMIN",
+              "INTERVIEWER"
+            ],
+            "title": "Role"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "createdAt"
+        ],
+        "title": "UserDTO"
+      },
+      "UserEnvelope": {
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserDTO"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user"
+        ],
+        "title": "UserEnvelope"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "description": "Session token from login/register/join.",
+        "scheme": "bearer"
+      },
+      "SessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "im_session"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Interviewer accounts and sessions."
+    },
+    {
+      "name": "Interviews",
+      "description": "Create and manage interviews; candidate join and end."
+    },
+    {
+      "name": "LiveKit",
+      "description": "Room tokens for the video session, and LiveKit's signed webhook."
+    },
+    {
+      "name": "Monitoring",
+      "description": "Events and screen-detection status reported by the clients."
+    },
+    {
+      "name": "Analytics",
+      "description": "Dashboard overview numbers."
+    },
+    {
+      "name": "Health",
+      "description": "Liveness / database check."
+    }
+  ]
+}
