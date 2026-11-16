@@ -56,7 +56,7 @@
             }
           },
           "409": {
-            "description": "Conflict (`email_taken`).",
+            "description": "Conflict (`email_taken`, `recording_closed`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -880,7 +880,7 @@
             }
           },
           "503": {
-            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`).",
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`, `ai_not_configured`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1182,6 +1182,770 @@
         ]
       }
     },
+    "/api/monitoring/screen-analysis": {
+      "post": {
+        "tags": [
+          "Monitoring"
+        ],
+        "summary": "Analyse a screenshot of the candidate's screen",
+        "description": "The interviewer's dashboard sends a screenshot (base64, up to 8 MB). A vision model identifies the visible application and returns exactly six fields. When a new application needing review appears, a `screen_app_review` (HIGH) or `screen_app_changed` (MEDIUM) event is added to the timeline; the same application staying visible does not repeat it. A HIGH alert means review is recommended, not misuse. AI failures return an error (never a made-up analysis). Limited to 30 per minute per interview.",
+        "operationId": "analyze_screen_api_monitoring_screen_analysis_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenAnalysis"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The interview has ended (`interview_ended`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited (`rate_limited`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The AI model failed (`ai_unavailable`, `ai_invalid_response`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`, `ai_not_configured`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The AI model timed out (`ai_timeout`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/recordings": {
+      "post": {
+        "tags": [
+          "Recordings"
+        ],
+        "summary": "Start a recording",
+        "description": "Creates the recording row. Then `PUT /{id}/chunks/{n}` for n = 0, 1, 2 ... and finish with `POST /{id}/complete`.",
+        "operationId": "start_recording_api_recordings_post",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRecordingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The interview has ended (`interview_ended`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`, `ai_not_configured`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Recordings"
+        ],
+        "summary": "Recording history",
+        "description": "Newest first. Interviewers see recordings of their own interviews; admins see all. Filter with `interviewId`.",
+        "operationId": "list_recordings_api_recordings_get",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "interviewId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Interviewid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/{recording_id}/chunks/{index}": {
+      "put": {
+        "tags": [
+          "Recordings"
+        ],
+        "summary": "Upload one chunk",
+        "description": "Raw video bytes as the body (any Content-Type, up to 16 MB). Re-sending an index replaces it.",
+        "operationId": "upload_chunk_api_recordings__recording_id__chunks__index__put",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Recording Id"
+            }
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Index"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (`email_taken`, `recording_closed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request body too large (64 KB; 8 MB for screen analysis) (`payload_too_large`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`, `ai_not_configured`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/{recording_id}/complete": {
+      "post": {
+        "tags": [
+          "Recordings"
+        ],
+        "summary": "Finish a recording",
+        "description": "Commits the uploaded chunks into the final video. 400 `chunks_missing` lists any that never arrived.",
+        "operationId": "complete_recording_api_recordings__recording_id__complete_post",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Recording Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteRecordingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Content-Type must be `application/json` (`unsupported_media_type`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`, `ai_not_configured`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/{recording_id}": {
+      "get": {
+        "tags": [
+          "Recordings"
+        ],
+        "summary": "Get a recording",
+        "operationId": "get_recording_api_recordings__recording_id__get",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Recording Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/{recording_id}/video": {
+      "get": {
+        "tags": [
+          "Recordings"
+        ],
+        "summary": "Stream the video",
+        "description": "Supports `Range` requests, so a `<video src>` can seek. Needs the session cookie or Bearer token.",
+        "operationId": "stream_video_api_recordings__recording_id__video_get",
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "recording_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Recording Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "video/webm": {},
+              "video/mp4": {}
+            }
+          },
+          "401": {
+            "description": "Not signed in, or the token is invalid/expired (`unauthorized`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed in but not allowed (`forbidden`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Invalid or unsatisfiable `Range` (`range_not_satisfiable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`, `ai_not_configured`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/analytics/overview": {
       "get": {
         "tags": [
@@ -1242,7 +2006,7 @@
             }
           },
           "503": {
-            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`).",
+            "description": "A dependency is unavailable (`livekit_unavailable`, `database_unavailable`, `ai_not_configured`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1402,6 +2166,35 @@
         ],
         "title": "CandidateInterviewEnvelope"
       },
+      "CompleteRecordingRequest": {
+        "properties": {
+          "chunkCount": {
+            "type": "integer",
+            "maximum": 50000.0,
+            "minimum": 1.0,
+            "title": "Chunkcount",
+            "description": "Chunks uploaded, numbered 0..n-1."
+          },
+          "durationSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 86400.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationseconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunkCount"
+        ],
+        "title": "CompleteRecordingRequest"
+      },
       "CreateInterviewRequest": {
         "properties": {
           "title": {
@@ -1435,6 +2228,30 @@
           "candidateName"
         ],
         "title": "CreateInterviewRequest"
+      },
+      "CreateRecordingRequest": {
+        "properties": {
+          "interviewId": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Interviewid"
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "video/webm",
+              "video/mp4"
+            ],
+            "title": "Contenttype",
+            "default": "video/webm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interviewId"
+        ],
+        "title": "CreateRecordingRequest"
       },
       "DayCount": {
         "properties": {
@@ -2001,6 +2818,136 @@
         "type": "object",
         "title": "OkResponse"
       },
+      "RecordingDTO": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "interviewId": {
+            "type": "string",
+            "title": "Interviewid"
+          },
+          "interviewTitle": {
+            "type": "string",
+            "title": "Interviewtitle"
+          },
+          "candidateName": {
+            "type": "string",
+            "title": "Candidatename"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RECORDING",
+              "READY",
+              "FAILED"
+            ],
+            "title": "Status"
+          },
+          "contentType": {
+            "type": "string",
+            "title": "Contenttype"
+          },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sizebytes"
+          },
+          "durationSeconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Durationseconds"
+          },
+          "startedAt": {
+            "type": "string",
+            "title": "Startedat"
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endedat"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "videoUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Videourl",
+            "description": "Authenticated URL that streams the video (Range supported); READY only."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "interviewId",
+          "interviewTitle",
+          "candidateName",
+          "status",
+          "contentType",
+          "sizeBytes",
+          "durationSeconds",
+          "startedAt",
+          "endedAt",
+          "createdAt",
+          "videoUrl"
+        ],
+        "title": "RecordingDTO"
+      },
+      "RecordingEnvelope": {
+        "properties": {
+          "recording": {
+            "$ref": "#/components/schemas/RecordingDTO"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recording"
+        ],
+        "title": "RecordingEnvelope"
+      },
+      "RecordingListResponse": {
+        "properties": {
+          "recordings": {
+            "items": {
+              "$ref": "#/components/schemas/RecordingDTO"
+            },
+            "type": "array",
+            "title": "Recordings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recordings"
+        ],
+        "title": "RecordingListResponse"
+      },
       "RegisterRequest": {
         "properties": {
           "name": {
@@ -2041,6 +2988,96 @@
           "password"
         ],
         "title": "RegisterRequest"
+      },
+      "ScreenAnalysis": {
+        "properties": {
+          "application": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Application"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "DESKTOP",
+              "CODE_EDITOR",
+              "IDE",
+              "WEB_BROWSER",
+              "AI_ASSISTANT",
+              "TERMINAL",
+              "DOCUMENT_EDITOR",
+              "SPREADSHEET",
+              "PRESENTATION",
+              "VIDEO_CALL",
+              "FILE_MANAGER",
+              "OTHER",
+              "UNKNOWN"
+            ],
+            "title": "Category"
+          },
+          "activity": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Activity"
+          },
+          "alert_level": {
+            "type": "string",
+            "enum": [
+              "HIGH",
+              "MEDIUM",
+              "LOW"
+            ],
+            "title": "Alert Level"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "application",
+          "category",
+          "activity",
+          "alert_level",
+          "message",
+          "confidence"
+        ],
+        "title": "ScreenAnalysis",
+        "description": "Exactly six fields; anything else from the model is rejected."
+      },
+      "ScreenAnalysisRequest": {
+        "properties": {
+          "interviewId": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Interviewid"
+          },
+          "image": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Image",
+            "description": "Screenshot as base64 (a `data:image/...;base64,` prefix is accepted)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "interviewId",
+          "image"
+        ],
+        "title": "ScreenAnalysisRequest"
       },
       "SeverityCount": {
         "properties": {

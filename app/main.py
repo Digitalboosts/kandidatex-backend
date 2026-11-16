@@ -6,9 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import dispose_engine
+from .services import recordings as recordings_storage
 from .errors import install_error_handlers
 from .middleware import RequestLimitsMiddleware, SecurityHeadersMiddleware
-from .routers import analytics, auth, health, interviews, livekit, monitoring
+from .routers import analytics, auth, health, interviews, livekit, monitoring, recordings
 
 DESCRIPTION = """
 REST API for the interview-monitoring platform: a candidate's phone streams its camera through
@@ -44,6 +45,7 @@ TAGS = [
 async def lifespan(_: FastAPI):
     yield
     await dispose_engine()
+    await recordings_storage.close()
 
 
 def create_app() -> FastAPI:
@@ -74,7 +76,7 @@ def create_app() -> FastAPI:
         )
     app.add_middleware(SecurityHeadersMiddleware)
 
-    for router in (auth.router, interviews.router, livekit.router, monitoring.router, analytics.router, health.router):
+    for router in (auth.router, interviews.router, livekit.router, monitoring.router, recordings.router, analytics.router, health.router):
         app.include_router(router)
 
     @app.get("/", include_in_schema=False)

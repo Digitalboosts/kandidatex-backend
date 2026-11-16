@@ -12,6 +12,9 @@ from .errors import error_body
 MAX_BODY_BYTES = 64 * 1024
 WEBHOOK_PATH = "/api/livekit/webhook"
 WEBHOOK_MAX_BODY_BYTES = 1024 * 1024
+CHUNK_MAX_BODY_BYTES = 16 * 1024 * 1024  # one video chunk
+SCREEN_ANALYSIS_PATH = "/api/monitoring/screen-analysis"
+SCREEN_ANALYSIS_MAX_BODY_BYTES = 8 * 1024 * 1024  # base64 screenshot
 _BODY_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -26,13 +29,21 @@ class RequestLimitsMiddleware:
 
         headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
         is_webhook = scope["path"] == WEBHOOK_PATH
-        limit = WEBHOOK_MAX_BODY_BYTES if is_webhook else MAX_BODY_BYTES
+        method, path = scope["method"], scope["path"]
+        is_chunk = method == "PUT" and path.startswith("/api/recordings/") and "/chunks/" in path
+        limit = MAX_BODY_BYTES
+        if is_webhook:
+            limit = WEBHOOK_MAX_BODY_BYTES
+        elif is_chunk:
+            limit = CHUNK_MAX_BODY_BYTES
+        elif scope["path"] == SCREEN_ANALYSIS_PATH:
+            limit = SCREEN_ANALYSIS_MAX_BODY_BYTES
         has_body = headers.get("content-length", "0") not in ("", "0") or "transfer-encoding" in headers
 
         async def reject(status: int, code: str, message: str) -> None:
             await JSONResponse(error_body(code, message), status_code=status)(scope, receive, send)
 
-        if has_body and not is_webhook and not headers.get("content-type", "").lower().startswith("application/json"):
+        if has_body and not is_webhook and not is_chunk and not headers.get("content-type", "").lower().startswith("application/json"):
             await reject(415, "unsupported_media_type", "Content-Type must be application/json")
             return
 

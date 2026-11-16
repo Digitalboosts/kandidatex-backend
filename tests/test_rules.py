@@ -23,5 +23,5 @@ def test_status_events():
 
 
 def test_every_event_has_severity_and_message():
-    assert len(EVENT_CATALOG) == 23
+    assert len(EVENT_CATALOG) == 25
     assert all(severity in ("INFO", "WARNING", "CRITICAL") and message for severity, message in EVENT_CATALOG.values())

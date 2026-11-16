@@ -165,6 +165,13 @@ class TestMisc:
             ("POST", "/api/livekit/webhook"),
             ("POST", "/api/monitoring/events"),
             ("POST", "/api/monitoring/status"),
+            ("POST", "/api/monitoring/screen-analysis"),
+            ("POST", "/api/recordings"),
+            ("GET", "/api/recordings"),
+            ("GET", "/api/recordings/{recording_id}"),
+            ("PUT", "/api/recordings/{recording_id}/chunks/{index}"),
+            ("POST", "/api/recordings/{recording_id}/complete"),
+            ("GET", "/api/recordings/{recording_id}/video"),
             ("GET", "/api/analytics/overview"),
             ("GET", "/api/health"),
         }

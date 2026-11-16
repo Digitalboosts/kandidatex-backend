@@ -31,6 +31,9 @@ EVENT_CATALOG: dict[str, tuple[Severity, str]] = {
     "app_backgrounded": ("WARNING", "Candidate app moved to the background."),
     "app_foregrounded": ("INFO", "Candidate app returned to the foreground."),
     "session_ended": ("INFO", "Session ended."),
+    # Raised by the AI screen agent; message is supplied by the agent.
+    "screen_app_review": ("CRITICAL", "Application on screen needs review."),
+    "screen_app_changed": ("WARNING", "Application on screen changed."),
 }
 
 # Events the phone may report. Join, leave and camera events normally come from LiveKit webhooks.

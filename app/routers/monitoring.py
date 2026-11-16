@@ -1,10 +1,14 @@
+import base64
+import binascii
+
 from fastapi import APIRouter
 
 from ..deps import CurrentActor, Session, assert_can_access
-from ..errors import forbidden
+from ..ai_screen_agent import ScreenAnalysis, ScreenAnalysisError, get_screen_agent
+from ..errors import ApiError, forbidden
 from ..monitoring_rules import CANDIDATE_REPORTABLE_EVENTS, EVENT_CATALOG, INTERVIEWER_REPORTABLE_EVENTS
 from ..rate_limit import rate_limit
-from ..schemas import EventEnvelope, EventRequest, StatusRequest, StatusResponse
+from ..schemas import EventEnvelope, EventRequest, ScreenAnalysisRequest, StatusRequest, StatusResponse
 from ..services.interviews import assert_not_ended, get_interview_or_404
 from ..services.monitoring import apply_status, record_event
 from ._docs import errors
@@ -64,3 +68,56 @@ async def report_status(body: StatusRequest, actor: CurrentActor, session: Sessi
     rate_limit(f"status:{interview.id}:{actor.kind}", 120, 60 * 1000)
     status, events = await apply_status(session, interview.id, interview.livekit_room_name, body)
     return StatusResponse(status=status, events=events)
+
+
+_SCREEN_ERRORS = {
+    "invalid_image": 400,
+    "ai_not_configured": 503,
+    "ai_timeout": 504,
+    "ai_unavailable": 502,
+    "ai_invalid_response": 502,
+}
+
+
+@router.post(
+    "/screen-analysis",
+    response_model=ScreenAnalysis,
+    summary="Analyse a screenshot of the candidate's screen",
+    description="The interviewer's dashboard sends a screenshot (base64, up to 8 MB). A vision model identifies the "
+    "visible application and returns exactly six fields. When a new application needing review appears, a "
+    "`screen_app_review` (HIGH) or `screen_app_changed` (MEDIUM) event is added to the timeline; the same "
+    "application staying visible does not repeat it. A HIGH alert means review is recommended, not misuse. "
+    "AI failures return an error (never a made-up analysis). Limited to 30 per minute per interview.",
+    responses=errors(400, 401, 403, 404, 410, 429, 502, 503, 504),
+)
+async def analyze_screen(body: ScreenAnalysisRequest, actor: CurrentActor, session: Session) -> ScreenAnalysis:
+    interview = await get_interview_or_404(session, body.interview_id)
+    assert_can_access(actor, interview)
+    assert_not_ended(interview)
+    if actor.kind == "candidate":
+        raise forbidden("Only the interviewer may request screen analysis")
+    rate_limit(f"screen:{interview.id}", 30, 60 * 1000)
+
+    encoded = body.image.split(",", 1)[1] if body.image.startswith("data:") and "," in body.image else body.image
+    try:
+        image = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise ApiError(400, "invalid_image", "Image must be valid base64") from None
+
+    interview_id, room_name = interview.id, interview.livekit_room_name  # plain values survive commits
+    try:
+        analysis, should_alert = await get_screen_agent().analyze_with_alert(image, interview_id)
+    except ScreenAnalysisError as exc:
+        raise ApiError(_SCREEN_ERRORS.get(exc.code, 502), exc.code, exc.message) from exc
+
+    if should_alert:
+        await record_event(
+            session,
+            interview_id,
+            room_name,
+            "screen_app_review" if analysis.alert_level == "HIGH" else "screen_app_changed",
+            message=analysis.message,
+            metadata={"application": analysis.application, "category": analysis.category,
+                      "confidence": analysis.confidence},
+        )
+    return analysis

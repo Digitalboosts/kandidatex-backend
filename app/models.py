@@ -5,7 +5,7 @@ import enum
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, TypeDecorator
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, TypeDecorator
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -54,6 +54,12 @@ class EventSeverity(str, enum.Enum):
     INFO = "INFO"
     WARNING = "WARNING"
     CRITICAL = "CRITICAL"
+
+
+class RecordingStatus(str, enum.Enum):
+    RECORDING = "RECORDING"  # chunks are still arriving
+    READY = "READY"  # committed to blob storage and playable
+    FAILED = "FAILED"
 
 
 ENDED_STATUSES = (InterviewStatus.COMPLETED, InterviewStatus.CANCELLED)
@@ -143,3 +149,29 @@ class MonitoringStatus(Base):
     updated_at: Mapped[datetime] = mapped_column("updatedAt", UTCDateTime, default=utcnow, onupdate=utcnow)
 
     interview: Mapped[Interview] = relationship(back_populates="monitoring_status")
+
+
+class Recording(Base):
+    """One video recording of an interview, stored in Azure Blob Storage.
+
+    An interview can have several (for example after a reconnect). ``blob_path`` is
+    ``<interviewerId>/<interviewId>/<recordingId>.<ext>`` inside the configured container."""
+
+    __tablename__ = "Recording"
+    __table_args__ = (Index("Recording_interviewId_createdAt_idx", "interviewId", "createdAt"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    interview_id: Mapped[str] = mapped_column("interviewId", ForeignKey("Interview.id", ondelete="CASCADE"))
+    status: Mapped[RecordingStatus] = mapped_column(
+        Enum(RecordingStatus, name="RecordingStatus"), default=RecordingStatus.RECORDING
+    )
+    blob_path: Mapped[str] = mapped_column("blobPath", String)
+    content_type: Mapped[str] = mapped_column("contentType", String)
+    size_bytes: Mapped[int | None] = mapped_column("sizeBytes", BigInteger, nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column("durationSeconds", Integer, nullable=True)
+    chunk_count: Mapped[int | None] = mapped_column("chunkCount", Integer, nullable=True)
+    started_at: Mapped[datetime] = mapped_column("startedAt", UTCDateTime, default=utcnow)
+    ended_at: Mapped[datetime | None] = mapped_column("endedAt", UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column("createdAt", UTCDateTime, default=utcnow)
+
+    interview: Mapped[Interview] = relationship(lazy="joined")

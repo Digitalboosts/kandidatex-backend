@@ -132,6 +132,11 @@ class EventRequest(CamelModel):
         return value
 
 
+class ScreenAnalysisRequest(CamelModel):
+    interview_id: str = Field(min_length=1, max_length=40)
+    image: str = Field(min_length=1, description="Screenshot as base64 (a `data:image/...;base64,` prefix is accepted).")
+
+
 class StatusRequest(CamelModel):
     interview_id: str = Field(min_length=1, max_length=40)
     source: StatusSource
@@ -142,6 +147,16 @@ class StatusRequest(CamelModel):
     stability: StabilityLevel
     alignment: AlignmentLevel
     readiness_score: Annotated[StrictInt, Field(ge=0, le=100)]
+
+
+class CreateRecordingRequest(CamelModel):
+    interview_id: str = Field(min_length=1, max_length=40)
+    content_type: Literal["video/webm", "video/mp4"] = "video/webm"
+
+
+class CompleteRecordingRequest(CamelModel):
+    chunk_count: Annotated[StrictInt, Field(ge=1, le=50000, description="Chunks uploaded, numbered 0..n-1.")]
+    duration_seconds: Annotated[StrictInt, Field(ge=0, le=86400)] | None = None
 
 
 # --------------------------------------------------------------- responses
@@ -290,3 +305,26 @@ class ErrorDetail(CamelModel):
 
 class ErrorResponse(CamelModel):
     error: ErrorDetail
+
+
+class RecordingDTO(CamelModel):
+    id: str
+    interview_id: str
+    interview_title: str
+    candidate_name: str
+    status: Literal["RECORDING", "READY", "FAILED"]
+    content_type: str
+    size_bytes: int | None
+    duration_seconds: int | None
+    started_at: str
+    ended_at: str | None
+    created_at: str
+    video_url: str | None = Field(description="Authenticated URL that streams the video (Range supported); READY only.")
+
+
+class RecordingEnvelope(CamelModel):
+    recording: RecordingDTO
+
+
+class RecordingListResponse(CamelModel):
+    recordings: list[RecordingDTO]

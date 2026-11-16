@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     cookie_secure: bool | None = None  # default: true in production
     cookie_domain: str | None = None
 
+    # Vision model for the screen detection agent (Azure OpenAI v1 / OpenAI-compatible).
+    openai_six_luna_api_key: str | None = None
+    openai_six_luna_base_url: str | None = None
+    openai_six_luna_model: str | None = None
+    screen_agent_timeout_seconds: Annotated[float, Field(gt=0, le=120)] = 30
+    # Extra applications that always raise a HIGH alert, comma-separated (on top of ChatGPT, Claude, Gemini, Copilot).
+    screen_agent_high_apps: str = ""
+
+    # Azure Blob Storage for interview recordings. Container names must be lowercase letters,
+    # digits and hyphens (3-63 chars). The SAS token needs read/write/create/list/delete on blobs.
+    azure_storage_endpoint: str | None = None
+    azure_storage_sas_token: str | None = None
+    azure_video_container: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")] = "interview-videos"
+
     # Interactive docs at /docs and /redoc, schema at /openapi.json.
     docs_enabled: bool = True
 
@@ -54,6 +68,10 @@ class Settings(BaseSettings):
         if self.cookie_samesite == "none":
             self.cookie_secure = True  # browsers reject SameSite=None without Secure
         return self
+
+    @property
+    def screen_agent_high_app_list(self) -> list[str]:
+        return [name.strip() for name in self.screen_agent_high_apps.split(",") if name.strip()]
 
     @property
     def cors_origin_list(self) -> list[str]:
