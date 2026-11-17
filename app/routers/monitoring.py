@@ -1,17 +1,24 @@
 import base64
 import binascii
+import logging
 
 from fastapi import APIRouter
 
 from ..deps import CurrentActor, Session, assert_can_access
+from ..ai_screen_agent.agent import detect_mime
 from ..ai_screen_agent import ScreenAnalysis, ScreenAnalysisError, get_screen_agent
 from ..errors import ApiError, forbidden
+from ..ids import new_id
+from ..models import ScreenAlert
 from ..monitoring_rules import CANDIDATE_REPORTABLE_EVENTS, EVENT_CATALOG, INTERVIEWER_REPORTABLE_EVENTS
 from ..rate_limit import rate_limit
 from ..schemas import EventEnvelope, EventRequest, ScreenAnalysisRequest, StatusRequest, StatusResponse
+from ..services import recordings as storage
 from ..services.interviews import assert_not_ended, get_interview_or_404
 from ..services.monitoring import apply_status, record_event
 from ._docs import errors
+
+logger = logging.getLogger("app.monitoring")
 
 router = APIRouter(prefix="/api/monitoring", tags=["Monitoring"])
 
@@ -105,19 +112,48 @@ async def analyze_screen(body: ScreenAnalysisRequest, actor: CurrentActor, sessi
         raise ApiError(400, "invalid_image", "Image must be valid base64") from None
 
     interview_id, room_name = interview.id, interview.livekit_room_name  # plain values survive commits
+    interviewer_id = interview.interviewer_id
     try:
         analysis, should_alert = await get_screen_agent().analyze_with_alert(image, interview_id)
     except ScreenAnalysisError as exc:
         raise ApiError(_SCREEN_ERRORS.get(exc.code, 502), exc.code, exc.message) from exc
 
     if should_alert:
+        metadata = {"application": analysis.application, "category": analysis.category,
+                    "confidence": analysis.confidence}  # fmt: skip
+        if analysis.alert_level == "HIGH":
+            # Keep the screenshot and the model's answer against this interviewer and interview.
+            alert_id, mime = new_id(), detect_mime(image)
+            path = storage.image_blob_path(interviewer_id, interview_id, alert_id, mime)
+            try:
+                blob_url = await storage.upload_image(path, image, mime)
+            except Exception:  # noqa: BLE001 - the analysis itself must still reach the dashboard
+                logger.exception("Could not store the screenshot for interview %s", interview_id)
+            else:
+                session.add(
+                    ScreenAlert(
+                        id=alert_id,
+                        interview_id=interview_id,
+                        user_id=interviewer_id,
+                        application=analysis.application,
+                        category=analysis.category,
+                        activity=analysis.activity,
+                        alert_level=analysis.alert_level,
+                        message=analysis.message,
+                        confidence=analysis.confidence,
+                        image_content_type=mime,
+                        image_blob_path=path,
+                        image_blob_url=blob_url,
+                    )
+                )
+                await session.commit()
+                metadata["screenAlertId"] = alert_id
         await record_event(
             session,
             interview_id,
             room_name,
             "screen_app_review" if analysis.alert_level == "HIGH" else "screen_app_changed",
             message=analysis.message,
-            metadata={"application": analysis.application, "category": analysis.category,
-                      "confidence": analysis.confidence},
+            metadata=metadata,
         )
     return analysis

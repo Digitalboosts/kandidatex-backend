@@ -15,10 +15,10 @@ from ..config import get_settings
 from ..errors import ApiError
 
 _service: BlobServiceClient | None = None
-_container_ready = False
+_ready_containers: set[str] = set()
 
 
-def _container() -> ContainerClient:
+def _container(name: str | None = None) -> ContainerClient:
     global _service
     settings = get_settings()
     if not (settings.azure_storage_endpoint and settings.azure_storage_sas_token):
@@ -27,26 +27,26 @@ def _container() -> ContainerClient:
         _service = BlobServiceClient(
             account_url=settings.azure_storage_endpoint.strip(), credential=settings.azure_storage_sas_token.strip()
         )
-    return _service.get_container_client(settings.azure_video_container)
+    return _service.get_container_client(name or settings.azure_video_container)
 
 
-async def _ready_container() -> ContainerClient:
-    global _container_ready
-    container = _container()
-    if not _container_ready:
+async def _ready_container(name: str | None = None) -> ContainerClient:
+    container = _container(name)
+    if container.container_name not in _ready_containers:
         try:
             await container.create_container()  # private by default
         except ResourceExistsError:
             pass
-        _container_ready = True
+        _ready_containers.add(container.container_name)
     return container
 
 
 async def close() -> None:
-    global _service, _container_ready
+    global _service
     if _service:
         await _service.close()
-    _service, _container_ready = None, False
+    _service = None
+    _ready_containers.clear()
 
 
 def blob_path(interviewer_id: str, interview_id: str, recording_id: str, content_type: str) -> str:
@@ -90,3 +90,23 @@ async def read_range(path: str, offset: int, length: int) -> AsyncIterator[bytes
         raise ApiError(404, "not_found", "Recording file not found") from None
     async for chunk in stream.chunks():
         yield chunk
+
+
+def image_blob_path(interviewer_id: str, interview_id: str, alert_id: str, content_type: str) -> str:
+    extension = {"image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}.get(content_type, "png")
+    return f"{interviewer_id}/{interview_id}/{alert_id}.{extension}"
+
+
+async def upload_image(path: str, data: bytes, content_type: str) -> str:
+    """Stores a screenshot in the image container and returns its blob URL (no SAS token)."""
+    blob = (await _ready_container(get_settings().azure_image_container)).get_blob_client(path)
+    await blob.upload_blob(data, overwrite=True, content_settings=ContentSettings(content_type=content_type))
+    return blob.url.split("?", 1)[0]
+
+
+async def download_image(path: str) -> bytes:
+    blob = (await _ready_container(get_settings().azure_image_container)).get_blob_client(path)
+    try:
+        return await (await blob.download_blob()).readall()
+    except ResourceNotFoundError:
+        raise ApiError(404, "not_found", "Screenshot file not found") from None

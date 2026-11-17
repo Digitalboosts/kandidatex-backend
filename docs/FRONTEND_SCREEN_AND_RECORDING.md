@@ -1,56 +1,250 @@
-# Frontend guide: Screen Analyzer and Recording APIs
+# Frontend guide: Subscription, Analytics, Screen alerts, Summary and Recordings
 
-New backend APIs for the interviewer dashboard:
-
-1. **Screen Analyzer**: send a screenshot, get what application is on the candidate's screen.
-2. **Recording**: upload the interview video in chunks to Azure Blob Storage.
-3. **History and playback**: list past recordings and play them.
-
-## Common rules
-
-| Item | Value |
-|---|---|
-| Base URL | your API host, e.g. `https://api.example.com` |
-| Who can call | **Interviewer (or admin) only.** A candidate token gets `403`. |
-| Authorization | `Authorization: Bearer <token>` (token from `POST /api/auth/login`), **or** the session cookie set at login (send with `credentials: "include"`). |
-| JSON requests | `Content-Type: application/json` |
-| Field names | camelCase (`interviewId`), except the Screen Analyzer response, which uses snake_case (see below). |
-| Interview ID | the same `id` returned by `POST /api/interviews`, e.g. `7K2M-9QXT-4HVB` |
-
-**Error shape (all APIs):**
-```json
-{ "error": { "code": "chunks_missing", "message": "1 chunk(s) were never uploaded", "details": { "missing": [3] } } }
-```
-Show `error.message`; use `error.code` for logic.
+Everything the frontend needs, one endpoint at a time: **URL, authorization, payload, response, errors**.
 
 ---
 
-# 1. Screen Analyzer
+## 0. Common rules
 
-Send one screenshot of the candidate's screen. An AI vision model returns which application is open and whether the interviewer should review it.
-
-| | |
+| Item | Value |
 |---|---|
-| **URL** | `/api/monitoring/screen-analysis` |
-| **Method** | `POST` |
-| **Authorization** | Bearer token or session cookie (interviewer) |
-| **Content-Type** | `application/json` |
-| **Max body** | 8 MB |
-| **Rate limit** | 30 requests per minute per interview |
+| **Base URL** | `{BASE_URL}` — e.g. `http://localhost:8000` (local) or your deployed API host. All paths below start with `/api`. |
+| **Format** | JSON bodies, `Content-Type: application/json`. JSON fields are **camelCase**. |
+| **Timestamps** | ISO 8601 UTC with milliseconds, e.g. `2026-11-16T10:30:00.000Z`. |
+| **Money** | `amount` is in the smallest unit (**paise**). `amountDisplay` is ready to show (e.g. `₹10`). |
 
-### Payload
+### Authorization
+
+Log in with `POST /api/auth/login` (or `register`). The response has a `token`, and the server also sets the httpOnly cookie `im_session`. Send **either**:
+
+```
+Authorization: Bearer <token>
+```
+
+or the cookie (`fetch(..., { credentials: "include" })`). Sessions last 8 hours. In this guide **"Auth: user"** means an interviewer or admin session. Interviewers only ever see their own data; admins see everyone's.
+
+### Error shape (every error)
+
+```json
+{ "error": { "code": "interview_limit_reached", "message": "Human readable text", "details": { } } }
+```
+
+Common status codes: `400` invalid input · `401` not signed in · `402` subscription / limit · `403` no access · `404` not found · `409` conflict · `429` rate limited · `502/503/504` an upstream service (AI, Razorpay, storage) is failing.
+
+---
+
+## 1. Subscription
+
+The product has **one plan, paid once** (no auto-renewal, no UPI Autopay). The user pays through Razorpay Checkout, and the backend verifies the payment. One payment gives a fixed number of interviews for `durationDays` days. When the days end, access stops and the user can pay again.
+
+### 1.1 Get plan details
+
+`GET {BASE_URL}/api/subscription/plan`
+
+- **Auth:** none (public)
+- **Payload:** none
+
+**Response 200**
+
+```json
+{
+  "plan": {
+    "code": "monthly_100",
+    "name": "Interview Detect Monthly",
+    "description": "50 monitored interviews for 30 days. One-time payment, no auto-renewal.",
+    "amount": 1000,
+    "amountDisplay": "₹10",
+    "currency": "INR",
+    "durationDays": 30,
+    "interviewsPerPeriod": 50
+  }
+}
+```
+
+### 1.2 Start a payment (checkout)
+
+`POST {BASE_URL}/api/subscription/checkout`
+
+- **Auth:** user
+- **Payload:** none (empty body or `{}`)
+- **Limit:** 10 per hour per user
+
+**Response 201**
+
+```json
+{
+  "keyId": "rzp_live_xxxxxxxx",
+  "orderId": "order_Nxxxxxxxxxxxx",
+  "plan": { "code": "monthly_100", "name": "Interview Detect Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." }
+}
+```
+
+Open Razorpay Checkout with `key: keyId` and `order_id: orderId` (this is a normal one-time payment, so QR / UPI / card all work):
+
+```js
+const rzp = new Razorpay({
+  key: data.keyId,
+  order_id: data.orderId,
+  handler: (res) => verify(res),   // res = { razorpay_payment_id, razorpay_order_id, razorpay_signature }
+});
+rzp.open();
+```
+
+**Errors:** `409 already_subscribed` (user already has an active plan) · `429` · `502/503` (Razorpay problem).
+
+### 1.3 Confirm the payment
+
+`POST {BASE_URL}/api/subscription/verify`
+
+- **Auth:** user
+- **Payload** (the three values Razorpay Checkout returns, copied as-is):
+
+```json
+{
+  "razorpayPaymentId": "pay_Nxxxxxxxxxxxx",
+  "razorpayOrderId": "order_Nxxxxxxxxxxxx",
+  "razorpaySignature": "9ef4dffbfd84f1318f6739a3ce19f9d85851857ae648f114332d8401e0949a3d"
+}
+```
+
+**Response 200**
+
+```json
+{
+  "status": "active",
+  "subscription": {
+    "status": "ACTIVE",
+    "active": true,
+    "plan": { "code": "monthly_100", "name": "Interview Detect Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." },
+    "currentPeriodStart": "2026-11-16T10:30:00.000Z",
+    "currentPeriodEnd": "2026-12-16T10:30:00.000Z",
+    "interviews": { "included": 100, "used": 0, "remaining": 100 }
+  }
+}
+```
+
+- `status: "active"` → show success.
+- `status: "pending"` → the payment is not captured yet. Show "Payment processing" and poll `GET /api/subscription/me` every few seconds until `subscribed` is `true`.
+- The backend sends the **welcome email** (first payment only) and the **subscription receipt email** automatically.
+
+**Errors:** `400 invalid_signature` · `404 not_found` (order does not belong to this user) · `502/503`.
+
+### 1.4 My subscription, interview limit and transactions
+
+`GET {BASE_URL}/api/subscription/me`
+
+- **Auth:** user
+- **Payload:** none
+
+Use this one call for the billing page and for the "interviews left" badge.
+
+**Response 200**
+
+```json
+{
+  "subscribed": true,
+  "subscription": {
+    "status": "ACTIVE",
+    "active": true,
+    "plan": { "code": "monthly_100", "name": "Interview Detect Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." },
+    "currentPeriodStart": "2026-11-16T10:30:00.000Z",
+    "currentPeriodEnd": "2026-12-16T10:30:00.000Z",
+    "interviews": { "included": 100, "used": 37, "remaining": 63 }
+  },
+  "interviews": { "included": 100, "used": 37, "remaining": 63 },
+  "transactions": [
+    {
+      "id": "cm3abc123",
+      "razorpayPaymentId": "pay_Nxxxxxxxxxxxx",
+      "amount": 1000,
+      "amountDisplay": "₹10",
+      "currency": "INR",
+      "status": "CAPTURED",
+      "method": "upi",
+      "createdAt": "2026-11-16T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `subscribed` | `true` when the user may create interviews. Use it to gate the UI. |
+| `subscription` | `null` if the user never started checkout. |
+| `subscription.status` | `CREATED` (checkout started, not paid) or `ACTIVE`. After `currentPeriodEnd` the plan is over and `subscribed` is `false`. |
+| `interviews.included / used / remaining` | The limit for the paid period. It is `0 / 0 / 0` when not subscribed. |
+| `transactions` | Payment history, newest first, at most 100. `status` is `CAPTURED` or `FAILED`. |
+
+The plan works until `currentPeriodEnd` (payment time + `durationDays`).
+
+### 1.5 Razorpay webhook (backend only)
+
+`POST {BASE_URL}/api/subscription/webhook` — called by Razorpay, **not by the frontend**. On `payment.captured` it records the payment, starts the paid period with `used` = 0, and sends the receipt email.
+
+### 1.6 What happens when the limit is reached
+
+`POST /api/interviews` (create an interview) checks the plan first. Handle these errors:
+
+| Status | `error.code` | When | Suggested UI |
+|---|---|---|---|
+| `402` | `subscription_required` | No active plan (never paid, or the period ended) | Show the plan and a "Pay" button |
+| `402` | `interview_limit_reached` | All interviews of the plan are used. `details` = `{ "included": 50, "used": 50 }` | Show "Limit reached", with a "Buy again" button once the plan ends |
+
+Admins are not limited.
+
+---
+
+## 2. Analytics (dashboard numbers)
+
+`GET {BASE_URL}/api/analytics/overview`
+
+- **Auth:** user
+- **Payload:** none
+
+**Response 200**
+
+```json
+{
+  "totals": { "total": 37, "active": 1, "completed": 30, "upcoming": 6 },
+  "interviewsByDay": [
+    { "date": "2026-11-03", "count": 2 },
+    { "date": "2026-11-04", "count": 0 }
+  ],
+  "eventsBySeverity": [
+    { "severity": "INFO", "count": 120 },
+    { "severity": "WARNING", "count": 14 },
+    { "severity": "CRITICAL", "count": 3 }
+  ]
+}
+```
+
+- `totals`: interview counts by status (`upcoming` = scheduled).
+- `interviewsByDay`: the last **14 days**, oldest first, UTC. Days with no interviews appear with `count: 0`.
+- `eventsBySeverity`: timeline events from the same 14 days.
+
+Combine this with `GET /api/subscription/me` (section 1.4) to show **"37 / 100 interviews used"** beside the charts.
+
+---
+
+## 3. Screen analysis (screenshot → AI result)
+
+`POST {BASE_URL}/api/monitoring/screen-analysis`
+
+- **Auth:** user (the interviewer's dashboard only; candidates get `403`)
+- **Limits:** body up to **8 MB**, **30 requests per minute** per interview. Image must be PNG, JPEG, WEBP or GIF.
+- **Payload:**
+
 ```json
 {
   "interviewId": "7K2M-9QXT-4HVB",
-  "image": "iVBORw0KGgoAAAANSUhEUg..."
+  "image": "data:image/png;base64,iVBORw0KGgo..."
 }
 ```
-- `image`: the screenshot as **base64** (PNG, JPEG, WEBP or GIF). A `data:image/png;base64,...` prefix is also accepted.
-- Convert a canvas: `canvas.toDataURL("image/jpeg", 0.7)` and send the whole string.
-- Send one image every few seconds, not every frame. JPEG at about 1280px wide is enough.
 
-### Success response `200`
-Exactly six fields (**snake_case**):
+`image` is base64. The `data:image/...;base64,` prefix is optional.
+
+**Response 200** (note: these six fields are **snake_case**, not camelCase)
+
 ```json
 {
   "application": "ChatGPT",
@@ -62,266 +256,250 @@ Exactly six fields (**snake_case**):
 }
 ```
 
-| Field | Values |
+| `alert_level` | Meaning |
 |---|---|
-| `application` | `Windows Desktop`, `Visual Studio Code`, `PyCharm`, `IntelliJ IDEA`, `Chrome`, `Edge`, `Firefox`, `ChatGPT`, `Claude`, `Gemini`, `Microsoft Copilot`, `Terminal`, `Command Prompt`, `PowerShell`, `Microsoft Word`, `Excel`, `PowerPoint`, `Google Meet`, `Zoom`, `Other`, `UNKNOWN` (other app names are possible) |
-| `category` | `DESKTOP` `CODE_EDITOR` `IDE` `WEB_BROWSER` `AI_ASSISTANT` `TERMINAL` `DOCUMENT_EDITOR` `SPREADSHEET` `PRESENTATION` `VIDEO_CALL` `FILE_MANAGER` `OTHER` `UNKNOWN` |
-| `alert_level` | `HIGH` (review recommended), `MEDIUM` (application changed), `LOW` (normal) |
-| `confidence` | number from 0 to 1 |
+| `HIGH` | An AI assistant or a configured high-priority app is visible. **Stored automatically** (see section 4). |
+| `MEDIUM` | The visible application changed. A timeline event is added, but nothing is stored. |
+| `LOW` | Normal screen. Nothing is added. |
 
-**How to show it**
-- `HIGH` and `MEDIUM` are also saved to the interview timeline automatically (events `screen_app_review` and `screen_app_changed`), once per new application. The same app staying open does **not** repeat the alert, so you do not need to de-duplicate.
-- `HIGH` means "please review", **not** "cheating proven". Do not label the candidate as cheating in the UI.
-- `application: "UNKNOWN"` means the frame was unclear. Ignore it.
+A HIGH alert means *review recommended*, not proof of misuse. The same application staying on screen does **not** raise a second alert.
 
-### Errors
-| Status | `error.code` | Meaning |
-|---|---|---|
-| 400 | `invalid_image` | not valid base64, or not PNG/JPEG/WEBP/GIF |
-| 401 | `unauthorized` | not logged in |
-| 403 | `forbidden` | candidate token, or not your interview |
-| 404 | `not_found` | unknown interview |
-| 410 | `interview_ended` | interview already ended |
-| 413 | `payload_too_large` | image over 8 MB |
-| 429 | `rate_limited` | too many requests, slow down |
-| 502 | `ai_unavailable` / `ai_invalid_response` | AI failed; just skip this frame and try the next |
-| 503 | `ai_not_configured` | server setup problem |
-| 504 | `ai_timeout` | AI too slow; skip this frame |
+**What the backend does on a new HIGH alert**
 
-### Example
-```js
-const res = await fetch(`${API}/api/monitoring/screen-analysis`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-  body: JSON.stringify({ interviewId, image: canvas.toDataURL("image/jpeg", 0.7) }),
-});
-if (res.ok) {
-  const r = await res.json();            // r.application, r.alert_level, ...
-}
-```
+1. Uploads the screenshot to the private Azure container `interviews-images`.
+2. Saves a `ScreenAlert` row: the six fields, the interviewer's `userId`, the `interviewId`, and the blob path and blob URL.
+3. Adds a timeline event `screen_app_review` whose `metadata.screenAlertId` points to that row.
+
+**Errors:** `400 invalid_image` · `403` · `404` · `410` (interview ended) · `429` · `502 ai_unavailable / ai_invalid_response` · `503 ai_not_configured` · `504 ai_timeout`. On an AI error nothing is stored and no fake analysis is returned.
 
 ---
 
-# 2. Recording (upload the video)
+## 4. Stored screen alerts
 
-Record the stream in the browser (e.g. `MediaRecorder`) and upload it in chunks. The backend stores it in Azure Blob Storage. Flow:
+Auth for all four: **user** (owner of the interview, or admin).
 
+### 4.1 Alerts of one interview
+
+`GET {BASE_URL}/api/interviews/{interviewId}/screen-alerts`
+
+**Response 200**
+
+```json
+{
+  "screenAlerts": [
+    {
+      "id": "cm3alert001",
+      "interviewId": "7K2M-9QXT-4HVB",
+      "userId": "cm3user001",
+      "application": "ChatGPT",
+      "category": "AI_ASSISTANT",
+      "activity": "ChatGPT webpage detected",
+      "alertLevel": "HIGH",
+      "message": "ChatGPT detected on screen. Review recommended.",
+      "confidence": 0.96,
+      "imageUrl": "/api/screen-alerts/cm3alert001/image",
+      "blobUrl": "https://<account>.blob.core.windows.net/interviews-images/cm3user001/7K2M-9QXT-4HVB/cm3alert001.png",
+      "createdAt": "2026-11-16T10:31:12.000Z"
+    }
+  ],
+  "summary": {
+    "interviewId": "7K2M-9QXT-4HVB",
+    "userId": "cm3user001",
+    "summary": "During this interview, the monitoring system raised ...",
+    "wordCount": 110,
+    "alertCount": 1,
+    "createdAt": "2026-11-16T10:45:00.000Z",
+    "updatedAt": "2026-11-16T10:45:00.000Z"
+  }
+}
 ```
-POST  /api/recordings                       -> get recording id
-PUT   /api/recordings/{id}/chunks/0,1,2...  -> upload each chunk
-POST  /api/recordings/{id}/complete         -> finish, video becomes playable
+
+Oldest first. `summary` is `null` until one exists (section 5).
+
+> **Showing the screenshot:** use `imageUrl`, **not** `blobUrl`. The blob container is private, so `blobUrl` will not open in a browser. `imageUrl` is served by the API and needs the login:
+> `<img src="{BASE_URL}{imageUrl}">` works when the session cookie is sent (same site, or CORS with credentials). Otherwise fetch it with the `Authorization` header and use `URL.createObjectURL(await res.blob())`.
+
+### 4.2 All my alerts
+
+`GET {BASE_URL}/api/screen-alerts?interviewId={optional}&limit=50`
+
+- `limit`: 1–200 (default 50). Newest first. Interviewers see their own; admins see all.
+- **Response:** same shape as 4.1, with `summary: null`.
+
+### 4.3 Screenshot image
+
+`GET {BASE_URL}/api/screen-alerts/{alertId}/image`
+
+- **Response 200:** the raw image (`image/png`, `image/jpeg`, `image/webp` or `image/gif`).
+- **Errors:** `403` (not your interview) · `404`.
+
+---
+
+## 5. AI summary of the alerts
+
+An AI agent writes a **100–120 word** summary of an interview's stored alerts. It reads only the **text** of the alerts. Screenshots and blob URLs are never sent to the model. The summary is saved against the interview.
+
+It is created **automatically when the interview ends** (if there were HIGH alerts), and you can also trigger it manually.
+
+### 5.1 Get the summary
+
+`GET {BASE_URL}/api/interviews/{interviewId}/summary`
+
+**Response 200**
+
+```json
+{
+  "summary": {
+    "interviewId": "7K2M-9QXT-4HVB",
+    "userId": "cm3user001",
+    "summary": "During this interview, the monitoring system raised three high-priority screen alerts over roughly seven minutes. All three involved AI assistant applications ... A reviewer should watch the recording and examine the stored screenshots.",
+    "wordCount": 110,
+    "alertCount": 3,
+    "createdAt": "2026-11-16T10:45:00.000Z",
+    "updatedAt": "2026-11-16T10:45:00.000Z"
+  }
+}
 ```
 
-## 2.1 Start a recording
+`"summary": null` means none exists yet (no alerts, or it has not been generated).
 
-| | |
-|---|---|
-| **URL** | `/api/recordings` |
-| **Method** | `POST` |
-| **Authorization** | Bearer token or session cookie (interviewer) |
-| **Content-Type** | `application/json` |
+### 5.2 Create or refresh the summary
 
-**Payload**
+`POST {BASE_URL}/api/interviews/{interviewId}/summary`
+
+- **Payload:** none. **Response 200:** same shape as 5.1. It replaces any earlier summary.
+- **Errors:** `409 no_alerts` (nothing stored) · `503 ai_not_configured` · `504 ai_timeout` · `502 ai_unavailable / ai_invalid_response`.
+
+Call this when the user presses "Regenerate", or if the automatic summary failed.
+
+---
+
+## 6. Recordings
+
+Only the interviewer records (the candidate's video comes through LiveKit). Upload goes in numbered chunks, then you finish it.
+
+### 6.1 Start
+
+`POST {BASE_URL}/api/recordings` — Auth: user
+
 ```json
 { "interviewId": "7K2M-9QXT-4HVB", "contentType": "video/webm" }
 ```
-`contentType` is optional: `video/webm` (default) or `video/mp4`. It must match what `MediaRecorder` produces.
 
-**Response `201`**
+`contentType` is `video/webm` (default) or `video/mp4`. **Response 201:** `{ "recording": { ...RecordingDTO } }` (see 6.5).
+
+### 6.2 Upload a chunk
+
+`PUT {BASE_URL}/api/recordings/{recordingId}/chunks/{index}` — Auth: user
+
+- **Payload:** the **raw bytes** of the chunk as the body (not JSON), up to **16 MB**. `index` = 0, 1, 2 … (0–49999).
+- Re-sending an index replaces that chunk, so retries are safe.
+- **Response:** `204` (no body). **Errors:** `409 recording_closed` · `413` · `400` (empty chunk).
+
+### 6.3 Finish
+
+`POST {BASE_URL}/api/recordings/{recordingId}/complete` — Auth: user
+
+```json
+{ "chunkCount": 12, "durationSeconds": 1800 }
+```
+
+`chunkCount` = how many chunks you uploaded (numbered 0..n-1). `durationSeconds` is optional. **Response 200:** `{ "recording": { ... } }` with `status: "READY"`. Calling it twice is harmless. **Error:** `400 chunks_missing` with the missing indexes in `details.missing`.
+
+### 6.4 List, get and play
+
+- `GET {BASE_URL}/api/recordings?interviewId={optional}&limit=50` → `{ "recordings": [ ... ] }`, newest first.
+- `GET {BASE_URL}/api/recordings/{recordingId}` → `{ "recording": { ... } }`.
+- `GET {BASE_URL}/api/recordings/{recordingId}/video` → the video stream (supports `Range`, so seeking works). Use it as `<video src="{BASE_URL}{videoUrl}">` with the session cookie.
+
+### 6.5 RecordingDTO
+
 ```json
 {
-  "recording": {
-    "id": "c0mwerne9p001400010c2c1",
-    "interviewId": "7K2M-9QXT-4HVB",
-    "interviewTitle": "Backend engineer",
-    "candidateName": "Sam Candidate",
-    "status": "RECORDING",
-    "contentType": "video/webm",
-    "sizeBytes": null,
-    "durationSeconds": null,
-    "startedAt": "2026-11-13T09:21:40.000Z",
-    "endedAt": null,
-    "createdAt": "2026-11-13T09:21:40.000Z",
-    "videoUrl": null
-  }
+  "id": "cm3rec001",
+  "interviewId": "7K2M-9QXT-4HVB",
+  "interviewTitle": "Backend Engineer Round 1",
+  "candidateName": "Priya Sharma",
+  "status": "READY",
+  "contentType": "video/webm",
+  "sizeBytes": 73400320,
+  "durationSeconds": 1800,
+  "startedAt": "2026-11-16T10:00:00.000Z",
+  "endedAt": "2026-11-16T10:30:00.000Z",
+  "createdAt": "2026-11-16T10:00:00.000Z",
+  "videoUrl": "/api/recordings/cm3rec001/video"
 }
 ```
-Keep `recording.id` for the next calls.
 
-Errors: `401`, `403`, `404`, `410 interview_ended`, `503 recording_storage_not_configured`.
-
-## 2.2 Upload a chunk
-
-| | |
-|---|---|
-| **URL** | `/api/recordings/{id}/chunks/{index}` |
-| **Method** | `PUT` |
-| **Authorization** | Bearer token or session cookie (interviewer) |
-| **Content-Type** | any (e.g. `video/webm`) |
-
-- `{index}` starts at **0** and goes up by 1 for every chunk (0, 1, 2, ...). Never skip a number.
-- **Payload:** the raw bytes of the chunk as the request body. It is **not** JSON and **not** a form.
-- Max **16 MB** per chunk. Use `mediaRecorder.start(5000)` for about 5 second chunks.
-- Re-sending the same `{index}` replaces that chunk, so it is safe to retry after a network error.
-
-**Response `204`** (empty body)
-
-Errors: `400` (empty chunk or bad index), `403`, `404`, `409 recording_closed` (already completed), `413 payload_too_large`.
-
-```js
-let index = 0;
-recorder.ondataavailable = async (e) => {
-  if (!e.data.size) return;
-  const i = index++;
-  await fetch(`${API}/api/recordings/${recordingId}/chunks/${i}`, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${token}` },
-    body: e.data,                        // the Blob, sent as-is
-  });
-};
-recorder.start(5000);
-```
-
-## 2.3 Finish the recording
-
-| | |
-|---|---|
-| **URL** | `/api/recordings/{id}/complete` |
-| **Method** | `POST` |
-| **Authorization** | Bearer token or session cookie (interviewer) |
-| **Content-Type** | `application/json` |
-
-**Payload**
-```json
-{ "chunkCount": 3, "durationSeconds": 12 }
-```
-- `chunkCount`: how many chunks you uploaded (indexes 0 to chunkCount-1). Wait for all chunk uploads to finish first.
-- `durationSeconds`: optional.
-
-**Response `200`**
-```json
-{
-  "recording": {
-    "id": "c0mwerne9p001400010c2c1",
-    "interviewId": "7K2M-9QXT-4HVB",
-    "interviewTitle": "Backend engineer",
-    "candidateName": "Sam Candidate",
-    "status": "READY",
-    "contentType": "video/webm",
-    "sizeBytes": 4500000,
-    "durationSeconds": 12,
-    "startedAt": "2026-11-13T09:21:40.000Z",
-    "endedAt": "2026-11-13T09:21:52.000Z",
-    "createdAt": "2026-11-13T09:21:40.000Z",
-    "videoUrl": "/api/recordings/c0mwerne9p001400010c2c1/video"
-  }
-}
-```
-Calling it again is safe (it returns the same result).
-
-Errors: `400 chunks_missing` (`error.details.missing` lists the missing indexes: upload them, then call again), `403`, `404`, `503`.
-
-> Important: call **complete** when the interview or recording stops. A recording that is never completed is not playable.
+`status` is `RECORDING`, `READY` or `FAILED`. `videoUrl` is `null` unless `READY`.
 
 ---
 
-# 3. History and playback
+## 7. The meeting report (one call for everything stored)
 
-## 3.1 List recordings (interview history)
+`GET {BASE_URL}/api/interviews/{interviewId}/report`
 
-| | |
-|---|---|
-| **URL** | `/api/recordings` |
-| **Method** | `GET` |
-| **Authorization** | Bearer token or session cookie (interviewer) |
-| **Payload** | none |
+- **Auth:** user (owner or admin)
+- **Payload:** none
 
-**Query parameters (optional)**
-| Name | Meaning |
-|---|---|
-| `interviewId` | only recordings of this interview |
-| `limit` | 1 to 200, default 50 |
+Use this for the "meeting details" page. It returns the interview, its recordings, the stored HIGH alerts with screenshot links, the AI summary and the event timeline.
 
-Example: `GET /api/recordings?interviewId=7K2M-9QXT-4HVB`
+**Response 200**
 
-**Response `200`** (newest first)
 ```json
 {
-  "recordings": [
+  "interview": {
+    "id": "7K2M-9QXT-4HVB",
+    "title": "Backend Engineer Round 1",
+    "interviewerId": "cm3user001",
+    "candidateName": "Priya Sharma",
+    "status": "COMPLETED",
+    "livekitRoomName": "interview-7K2M-9QXT-4HVB",
+    "scheduledAt": null,
+    "startedAt": "2026-11-16T10:00:00.000Z",
+    "endedAt": "2026-11-16T10:30:00.000Z",
+    "createdAt": "2026-11-16T09:50:00.000Z",
+    "candidateJoinedAt": "2026-11-16T09:58:00.000Z",
+    "monitoringStatus": null
+  },
+  "recordings": [ { "id": "cm3rec001", "status": "READY", "videoUrl": "/api/recordings/cm3rec001/video", "...": "see 6.5" } ],
+  "screenAlerts": [ { "id": "cm3alert001", "alertLevel": "HIGH", "imageUrl": "/api/screen-alerts/cm3alert001/image", "blobUrl": "https://...", "...": "see 4.1" } ],
+  "summary": { "summary": "During this interview ...", "wordCount": 110, "alertCount": 3, "...": "see 5.1" },
+  "events": [
     {
-      "id": "c0mwerne9p001400010c2c1",
+      "id": "cm3evt001",
       "interviewId": "7K2M-9QXT-4HVB",
-      "interviewTitle": "Backend engineer",
-      "candidateName": "Sam Candidate",
-      "status": "READY",
-      "contentType": "video/webm",
-      "sizeBytes": 4500000,
-      "durationSeconds": 12,
-      "startedAt": "2026-11-13T09:21:40.000Z",
-      "endedAt": "2026-11-13T09:21:52.000Z",
-      "createdAt": "2026-11-13T09:21:40.000Z",
-      "videoUrl": "/api/recordings/c0mwerne9p001400010c2c1/video"
+      "eventType": "screen_app_review",
+      "message": "ChatGPT detected on screen. Review recommended.",
+      "severity": "CRITICAL",
+      "metadata": { "application": "ChatGPT", "category": "AI_ASSISTANT", "confidence": 0.96, "screenAlertId": "cm3alert001" },
+      "createdAt": "2026-11-16T10:31:12.000Z"
     }
   ]
 }
 ```
-- An interviewer sees only their own interviews. An admin sees all.
-- `status`: `RECORDING` (still uploading), `READY` (playable), `FAILED`.
-- `videoUrl` is `null` unless `status` is `READY`. It is a path: prepend your API base URL.
-- The list does **not** contain the video, only the details and the URL.
 
-For the full timeline of one interview (including screen alerts) use the existing `GET /api/interviews/{id}/events`.
-
-## 3.2 Get one recording
-
-| | |
-|---|---|
-| **URL** | `/api/recordings/{id}` |
-| **Method** | `GET` |
-| **Authorization** | Bearer token or session cookie (interviewer) |
-
-**Response `200`**: `{ "recording": { ...same fields as above... } }`. Errors: `403`, `404`.
-
-## 3.3 Play the video
-
-| | |
-|---|---|
-| **URL** | `/api/recordings/{id}/video` (this is `videoUrl`) |
-| **Method** | `GET` |
-| **Authorization** | Bearer token or session cookie (interviewer) |
-| **Payload** | none (the browser adds a `Range` header itself when seeking) |
-
-**Response:** the **video bytes**, not JSON. `Content-Type` is `video/webm` or `video/mp4`. It returns `200` for the whole file, or `206 Partial Content` for a `Range` request. Seeking and progressive playback work.
-
-**Option A: logged in with the session cookie (recommended)**
-```html
-<video controls src="https://api.example.com/api/recordings/RECORDING_ID/video"></video>
-```
-If the dashboard and the API are on different domains, the backend needs `COOKIE_SAMESITE=none` and `CORS_ORIGINS` set to the dashboard origin.
-
-**Option B: logged in with a Bearer token** (a `<video>` tag cannot send headers, so download it as a Blob first)
-```js
-const res = await fetch(`${API}${rec.videoUrl}`, { headers: { Authorization: `Bearer ${token}` } });
-const blob = await res.blob();
-videoEl.src = URL.createObjectURL(blob);
-// when finished: URL.revokeObjectURL(videoEl.src)
-```
-Option B downloads the whole file before playing, which is slow for long interviews.
-
-Errors: `401`, `403` (not your interview), `404 not_found` (not READY yet), `416` (bad `Range`).
+`summary` is `null` if none exists. `recordings` and `screenAlerts` are empty arrays when nothing is stored. To link a timeline event to its screenshot, match `events[].metadata.screenAlertId` with `screenAlerts[].id`.
 
 ---
 
-## Quick reference
+## 8. Quick reference
 
-| # | Purpose | Method | URL | Body |
-|---|---|---|---|---|
-| 1 | Analyse screenshot | POST | `/api/monitoring/screen-analysis` | JSON `{interviewId, image}` |
-| 2a | Start recording | POST | `/api/recordings` | JSON `{interviewId, contentType?}` |
-| 2b | Upload chunk | PUT | `/api/recordings/{id}/chunks/{index}` | raw video bytes |
-| 2c | Finish recording | POST | `/api/recordings/{id}/complete` | JSON `{chunkCount, durationSeconds?}` |
-| 3a | History list | GET | `/api/recordings?interviewId=` | none |
-| 3b | One recording | GET | `/api/recordings/{id}` | none |
-| 3c | Play video | GET | `/api/recordings/{id}/video` | none |
+| What | Method and path | Auth |
+|---|---|---|
+| Plan details | `GET /api/subscription/plan` | none |
+| Start subscription | `POST /api/subscription/checkout` | user |
+| Confirm payment | `POST /api/subscription/verify` | user |
+| Subscription, limit, transactions | `GET /api/subscription/me` | user |
+| Dashboard analytics | `GET /api/analytics/overview` | user |
+| Analyse a screenshot | `POST /api/monitoring/screen-analysis` | user |
+| Alerts of one interview | `GET /api/interviews/{id}/screen-alerts` | user |
+| All my alerts | `GET /api/screen-alerts` | user |
+| Alert screenshot | `GET /api/screen-alerts/{alertId}/image` | user |
+| Get AI summary | `GET /api/interviews/{id}/summary` | user |
+| Create or refresh summary | `POST /api/interviews/{id}/summary` | user |
+| Meeting report (everything) | `GET /api/interviews/{id}/report` | user |
+| Start / upload / finish recording | `POST /api/recordings` · `PUT /api/recordings/{id}/chunks/{n}` · `POST /api/recordings/{id}/complete` | user |
+| List / get / play recordings | `GET /api/recordings` · `GET /api/recordings/{id}` · `GET /api/recordings/{id}/video` | user |
 
-All of them need the interviewer's `Authorization: Bearer <token>` (or the session cookie).
+The full machine-readable list is also at `{BASE_URL}/docs` (Swagger) when docs are enabled on the server.

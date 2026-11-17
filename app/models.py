@@ -5,7 +5,19 @@ import enum
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, TypeDecorator
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    TypeDecorator,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -175,3 +187,86 @@ class Recording(Base):
     created_at: Mapped[datetime] = mapped_column("createdAt", UTCDateTime, default=utcnow)
 
     interview: Mapped[Interview] = relationship(lazy="joined")
+
+
+class ScreenAlert(Base):
+    """A HIGH screen alert: the screenshot that triggered it plus the vision model's answer, kept against
+    the interviewer (``user_id``) and the interview so it can be reviewed with the recording afterwards."""
+
+    __tablename__ = "ScreenAlert"
+    __table_args__ = (
+        Index("ScreenAlert_interviewId_createdAt_idx", "interviewId", "createdAt"),
+        Index("ScreenAlert_userId_createdAt_idx", "userId", "createdAt"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    interview_id: Mapped[str] = mapped_column("interviewId", ForeignKey("Interview.id", ondelete="CASCADE"))
+    user_id: Mapped[str] = mapped_column("userId", ForeignKey("User.id", ondelete="CASCADE"))
+    # The six fields the vision model returned.
+    application: Mapped[str] = mapped_column(String)
+    category: Mapped[str] = mapped_column(String)
+    activity: Mapped[str] = mapped_column(String)
+    alert_level: Mapped[str] = mapped_column("alertLevel", String)
+    message: Mapped[str] = mapped_column(String)
+    confidence: Mapped[float] = mapped_column(Float)
+    image_content_type: Mapped[str] = mapped_column("imageContentType", String)
+    # The screenshot lives in the Azure image container: its path inside it, and its blob URL.
+    image_blob_path: Mapped[str] = mapped_column("imageBlobPath", String)
+    image_blob_url: Mapped[str] = mapped_column("imageBlobUrl", String)
+    created_at: Mapped[datetime] = mapped_column("createdAt", UTCDateTime, default=utcnow)
+
+
+class InterviewSummary(Base):
+    """AI summary (100-120 words) of an interview's stored screen alerts; one row per interview."""
+
+    __tablename__ = "InterviewSummary"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    interview_id: Mapped[str] = mapped_column(
+        "interviewId", ForeignKey("Interview.id", ondelete="CASCADE"), unique=True
+    )
+    user_id: Mapped[str] = mapped_column("userId", ForeignKey("User.id", ondelete="CASCADE"))
+    summary: Mapped[str] = mapped_column(String)
+    word_count: Mapped[int] = mapped_column("wordCount", Integer)
+    alert_count: Mapped[int] = mapped_column("alertCount", Integer)
+    created_at: Mapped[datetime] = mapped_column("createdAt", UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", UTCDateTime, default=utcnow, onupdate=utcnow)
+
+
+class Subscription(Base):
+    """A user's monthly plan (one row per user). ``interviews_used`` resets on every successful charge."""
+
+    __tablename__ = "Subscription"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column("userId", ForeignKey("User.id", ondelete="CASCADE"), unique=True)
+    plan_code: Mapped[str] = mapped_column("planCode", String)
+    razorpay_plan_id: Mapped[str] = mapped_column("razorpayPlanId", String)
+    razorpay_subscription_id: Mapped[str] = mapped_column("razorpaySubscriptionId", String, unique=True)
+    # CREATED (checkout not paid yet), ACTIVE, PENDING, HALTED, CANCELLED, COMPLETED, EXPIRED, PAUSED
+    status: Mapped[str] = mapped_column(String, default="CREATED")
+    interviews_included: Mapped[int] = mapped_column("interviewsIncluded", Integer)
+    interviews_used: Mapped[int] = mapped_column("interviewsUsed", Integer, default=0)
+    current_period_start: Mapped[datetime | None] = mapped_column("currentPeriodStart", UTCDateTime, nullable=True)
+    current_period_end: Mapped[datetime | None] = mapped_column("currentPeriodEnd", UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column("createdAt", UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", UTCDateTime, default=utcnow, onupdate=utcnow)
+
+
+class PaymentTransaction(Base):
+    """One Razorpay payment for a subscription. ``razorpay_payment_id`` is unique, so a payment is recorded once
+    even when both the checkout callback and the webhook report it."""
+
+    __tablename__ = "PaymentTransaction"
+    __table_args__ = (Index("PaymentTransaction_userId_createdAt_idx", "userId", "createdAt"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column("userId", ForeignKey("User.id", ondelete="CASCADE"))
+    subscription_id: Mapped[str] = mapped_column("subscriptionId", ForeignKey("Subscription.id", ondelete="CASCADE"))
+    razorpay_payment_id: Mapped[str] = mapped_column("razorpayPaymentId", String, unique=True)
+    razorpay_invoice_id: Mapped[str | None] = mapped_column("razorpayInvoiceId", String, nullable=True)
+    amount: Mapped[int] = mapped_column(BigInteger)  # smallest unit (paise)
+    currency: Mapped[str] = mapped_column(String, default="INR")
+    status: Mapped[str] = mapped_column(String)  # CAPTURED | FAILED
+    method: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column("createdAt", UTCDateTime, default=utcnow)

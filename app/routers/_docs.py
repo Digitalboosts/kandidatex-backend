@@ -5,6 +5,7 @@ from ..schemas import ErrorResponse
 _DESCRIPTIONS = {
     400: "Validation error (`validation_error`) or malformed JSON (`invalid_json`).",
     401: "Not signed in, or the token is invalid/expired (`unauthorized`).",
+    402: "Subscription needed or the monthly interview allowance is used up (`subscription_required`, `interview_limit_reached`).",
     403: "Signed in but not allowed (`forbidden`).",
     404: "Not found (`not_found`).",
     409: "Conflict (`email_taken`, `recording_closed`).",

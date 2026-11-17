@@ -7,9 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .db import dispose_engine
 from .services import recordings as recordings_storage
+from .subscription import razorpay_client, router as subscription_router
 from .errors import install_error_handlers
 from .middleware import RequestLimitsMiddleware, SecurityHeadersMiddleware
-from .routers import analytics, auth, health, interviews, livekit, monitoring, recordings
+from .routers import analytics, auth, health, interviews, livekit, monitoring, recordings, screen_alerts
 
 DESCRIPTION = """
 REST API for the interview-monitoring platform: a candidate's phone streams its camera through
@@ -36,6 +37,7 @@ TAGS = [
     {"name": "Interviews", "description": "Create and manage interviews; candidate join and end."},
     {"name": "LiveKit", "description": "Room tokens for the video session, and LiveKit's signed webhook."},
     {"name": "Monitoring", "description": "Events and screen-detection status reported by the clients."},
+    {"name": "Subscription", "description": "Monthly Razorpay plan, payment history and interview allowance."},
     {"name": "Analytics", "description": "Dashboard overview numbers."},
     {"name": "Health", "description": "Liveness / database check."},
 ]
@@ -46,6 +48,7 @@ async def lifespan(_: FastAPI):
     yield
     await dispose_engine()
     await recordings_storage.close()
+    await razorpay_client.close()
 
 
 def create_app() -> FastAPI:
@@ -76,7 +79,7 @@ def create_app() -> FastAPI:
         )
     app.add_middleware(SecurityHeadersMiddleware)
 
-    for router in (auth.router, interviews.router, livekit.router, monitoring.router, recordings.router, analytics.router, health.router):
+    for router in (auth.router, interviews.router, livekit.router, monitoring.router, recordings.router, screen_alerts.router, subscription_router.router, analytics.router, health.router):
         app.include_router(router)
 
     @app.get("/", include_in_schema=False)

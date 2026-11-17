@@ -328,3 +328,47 @@ class RecordingEnvelope(CamelModel):
 
 class RecordingListResponse(CamelModel):
     recordings: list[RecordingDTO]
+
+
+class ScreenAlertDTO(CamelModel):
+    id: str
+    interview_id: str
+    user_id: str = Field(description="The interviewer the alert belongs to.")
+    application: str
+    category: str
+    activity: str
+    alert_level: str
+    message: str
+    confidence: float
+    image_url: str = Field(description="Authenticated API URL that returns the screenshot.")
+    blob_url: str = Field(description="Azure blob URL of the screenshot (the container is private).")
+    created_at: str
+
+
+class InterviewSummaryDTO(CamelModel):
+    interview_id: str
+    user_id: str
+    summary: str = Field(description="AI summary of the stored screen alerts, 100-120 words.")
+    word_count: int
+    alert_count: int = Field(description="How many stored alerts the summary covers.")
+    created_at: str
+    updated_at: str
+
+
+class InterviewSummaryEnvelope(CamelModel):
+    summary: InterviewSummaryDTO | None
+
+
+class ScreenAlertListResponse(CamelModel):
+    screen_alerts: list[ScreenAlertDTO]
+    summary: InterviewSummaryDTO | None = None
+
+
+class InterviewReportResponse(CamelModel):
+    """Everything stored for one meeting."""
+
+    interview: InterviewDTO
+    recordings: list[RecordingDTO]
+    screen_alerts: list[ScreenAlertDTO]
+    summary: InterviewSummaryDTO | None = None
+    events: list[MonitoringEventDTO]

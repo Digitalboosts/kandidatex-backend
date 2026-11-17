@@ -13,6 +13,12 @@ os.environ.update(
         "READINESS_THRESHOLD": "80",
         "ADMIN_REGISTRATION_CODE": "test-admin-code",
         "CORS_ORIGINS": "",
+        "SUBSCRIPTION_ENFORCED": "false",  # test_subscription.py switches it on
+        "RAZORPAY_KEY_ID": "rzp_test_key",
+        "RAZORPAY_KEY_SECRET": "rzp_test_secret",
+        "RAZORPAY_WEBHOOK_SECRET": "whsec_test",
+        "EMAIL_SENDER_C": "",
+        "EMAIL_PASSWORD_C": "",
     }
 )
 

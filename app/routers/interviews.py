@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Query, Request
 from sqlalchemy import select
 
 from ..config import get_settings
@@ -24,6 +24,8 @@ from ..serializers import candidate_interview_dto, event_dto, interview_dto
 from ..services import livekit
 from ..services.interviews import assert_not_ended, get_interview_or_404, is_ended
 from ..services.monitoring import record_event
+from ..services.summaries import summarize_in_background
+from ..subscription.service import consume_interview_quota
 from ._docs import errors
 
 router = APIRouter(prefix="/api/interviews", tags=["Interviews"])
@@ -40,9 +42,10 @@ def _parse_iso(value: str) -> datetime:
     response_model=InterviewEnvelope,
     summary="Create an interview",
     description="Generates an unguessable, typeable interview ID (e.g. `7K2M-9QXT-4HVB`) and a LiveKit room name.",
-    responses=errors(400, 401, 415),
+    responses=errors(400, 401, 402, 415),
 )
 async def create_interview(body: CreateInterviewRequest, user: CurrentUser, session: Session) -> InterviewEnvelope:
+    await consume_interview_quota(session, user)  # needs an active plan with interviews left
     interview_id = generate_interview_id()
     interview = Interview(
         id=interview_id,
@@ -138,7 +141,7 @@ async def join_interview(id: str, body: JoinRequest, request: Request, session: 
     responses=errors(401, 403, 404),
 )
 async def end_interview(
-    id: str, actor: CurrentActor, session: Session
+    id: str, actor: CurrentActor, session: Session, background: BackgroundTasks
 ) -> InterviewEnvelope | CandidateInterviewEnvelope:
     interview = await get_interview_or_404(session, id)
     assert_can_access(actor, interview)
@@ -167,6 +170,7 @@ async def end_interview(
     )
     await livekit.broadcast(room, {"type": "session_ended", "interviewId": interview_id, "endedBy": ended_by})
     await livekit.close_room(room)
+    background.add_task(summarize_in_background, interview_id)  # AI summary of the stored alerts, if any
     return serialize(interview)
 
 

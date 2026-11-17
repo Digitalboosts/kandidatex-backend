@@ -53,6 +53,24 @@ class Settings(BaseSettings):
     azure_storage_endpoint: str | None = None
     azure_storage_sas_token: str | None = None
     azure_video_container: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")] = "interview-videos"
+    # Screenshots of HIGH screen alerts (same storage account, separate container).
+    azure_image_container: Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")] = "interviews-images"
+
+    # Razorpay (one-time payment for the plan).
+    razorpay_key_id: str | None = None
+    razorpay_key_secret: str | None = None
+    razorpay_webhook_secret: str | None = None
+    # When true, creating an interview needs an active subscription with interviews left (admins are exempt).
+    subscription_enforced: bool = True
+
+    # Outgoing email (Google Workspace SMTP by default). EMAIL_PASSWORD_C is an app password.
+    email_sender_c: str | None = None
+    email_password_c: str | None = None
+    email_smtp_host: str = "smtp.gmail.com"
+    email_smtp_port: int = 587
+    email_sender_name: str = "Interview Detect"
+    # Link used by the buttons in the emails.
+    app_url: str = "https://speedychat.io"
 
     # Interactive docs at /docs and /redoc, schema at /openapi.json.
     docs_enabled: bool = True
@@ -61,6 +79,9 @@ class Settings(BaseSettings):
     def _normalise(self) -> "Settings":
         if self.admin_registration_code == "":
             self.admin_registration_code = None
+        for name in ("razorpay_key_id", "razorpay_key_secret", "razorpay_webhook_secret"):
+            if getattr(self, name) == "":
+                setattr(self, name, None)
         if self.cookie_domain == "":
             self.cookie_domain = None
         if self.cookie_secure is None:

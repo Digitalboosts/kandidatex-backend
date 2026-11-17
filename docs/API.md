@@ -177,6 +177,32 @@ Delivery is best effort — clients should also poll `GET /api/interviews/{id}` 
 
 ---
 
+## Subscription
+
+One-time Razorpay payment: **INR 10 for 30 days, 50 interviews**. There is no auto-renewal; when the 30 days end the user pays again. `POST /api/interviews` returns `402` (`subscription_required` or `interview_limit_reached`) unless the
+user has a paid, unexpired plan with interviews left. Admins are exempt.
+
+### `GET /api/subscription/plan` 🔓
+Price, `durationDays` and interviews included.
+
+### `POST /api/subscription/checkout` 👤
+Creates a Razorpay order. Response: `{ keyId, orderId, plan }`. Open Razorpay Checkout with
+`key: keyId`, `order_id: orderId`. `409 already_subscribed` if the user already has an active plan.
+
+### `POST /api/subscription/verify` 👤
+Body: `{ razorpayPaymentId, razorpayOrderId, razorpaySignature }` (the three values Checkout returns).
+Verifies the signature, confirms the payment with Razorpay, activates the plan and sends the **welcome** (first
+payment only) and **subscription** emails from `EMAIL_SENDER_C`. Response: `{ status: "active" | "pending", subscription }`.
+
+### `GET /api/subscription/me` 👤
+`{ subscribed, subscription, interviews: { included, used, remaining }, transactions: [...] }`.
+Transactions are the user's payments, newest first (max 100).
+
+### `POST /api/subscription/webhook` (Razorpay only)
+Dashboard URL: `https://<api>/api/subscription/webhook`; event `payment.captured`. Verified with
+`X-Razorpay-Signature`. A captured payment records a transaction, starts the 30-day period with a fresh interview
+count and sends the receipt email.
+
 ## Monitoring
 
 ### `POST /api/monitoring/events` 👤🧑
