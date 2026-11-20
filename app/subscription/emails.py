@@ -12,9 +12,9 @@ from ..config import get_settings
 
 logger = logging.getLogger("app.email")
 
-BRAND = "Interview Detect"
-ACCENT = "#4f46e5"
-ACCENT_DARK = "#3730a3"
+BRAND = "Kandidatex"
+ACCENT = "#1d6bff"
+ACCENT_DARK = "#0a1b3d"
 
 
 def _layout(preheader: str, title: str, body_html: str, button_label: str, button_url: str) -> str:
@@ -33,10 +33,11 @@ def _layout(preheader: str, title: str, body_html: str, button_label: str, butto
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f8;padding:32px 12px;">
 <tr><td align="center">
   <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(17,24,39,0.08);">
-    <tr><td style="background:{ACCENT};background-image:linear-gradient(135deg,{ACCENT},{ACCENT_DARK});padding:32px 40px;">
-      <div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.3px;">{BRAND}</div>
-      <div style="font-size:13px;color:#c7d2fe;margin-top:4px;">Smarter, safer remote interviews</div>
+    <tr><td style="background:{ACCENT_DARK};padding:30px 40px;">
+      <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:0.2px;">Kandidate<span style="color:#2f80ff;">x</span></div>
+      <div style="font-size:13px;color:#3fe0d0;margin-top:4px;">Smarter, safer remote interviews</div>
     </td></tr>
+    <tr><td style="height:4px;line-height:4px;font-size:0;background:{ACCENT};background-image:linear-gradient(90deg,#14d9c5,{ACCENT});">&nbsp;</td></tr>
     <tr><td style="padding:36px 40px 12px 40px;color:#111827;">
       <h1 style="margin:0 0 16px 0;font-size:24px;line-height:1.3;color:#111827;">{escape(title)}</h1>
       {body_html}

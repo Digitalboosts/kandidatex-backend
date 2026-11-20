@@ -50,7 +50,7 @@ The product has **one plan, paid once** (no auto-renewal, no UPI Autopay). The u
 {
   "plan": {
     "code": "monthly_100",
-    "name": "Interview Detect Monthly",
+    "name": "Kandidatex Monthly",
     "description": "50 monitored interviews for 30 days. One-time payment, no auto-renewal.",
     "amount": 1000,
     "amountDisplay": "₹10",
@@ -75,7 +75,7 @@ The product has **one plan, paid once** (no auto-renewal, no UPI Autopay). The u
 {
   "keyId": "rzp_live_xxxxxxxx",
   "orderId": "order_Nxxxxxxxxxxxx",
-  "plan": { "code": "monthly_100", "name": "Interview Detect Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." }
+  "plan": { "code": "monthly_100", "name": "Kandidatex Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." }
 }
 ```
 
@@ -115,7 +115,7 @@ rzp.open();
   "subscription": {
     "status": "ACTIVE",
     "active": true,
-    "plan": { "code": "monthly_100", "name": "Interview Detect Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." },
+    "plan": { "code": "monthly_100", "name": "Kandidatex Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." },
     "currentPeriodStart": "2026-11-16T10:30:00.000Z",
     "currentPeriodEnd": "2026-12-16T10:30:00.000Z",
     "interviews": { "included": 100, "used": 0, "remaining": 100 }
@@ -146,7 +146,7 @@ Use this one call for the billing page and for the "interviews left" badge.
   "subscription": {
     "status": "ACTIVE",
     "active": true,
-    "plan": { "code": "monthly_100", "name": "Interview Detect Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." },
+    "plan": { "code": "monthly_100", "name": "Kandidatex Monthly", "amount": 1000, "amountDisplay": "₹10", "currency": "INR", "durationDays": 30, "interviewsPerPeriod": 50, "description": "..." },
     "currentPeriodStart": "2026-11-16T10:30:00.000Z",
     "currentPeriodEnd": "2026-12-16T10:30:00.000Z",
     "interviews": { "included": 100, "used": 37, "remaining": 63 }

@@ -68,9 +68,9 @@ class Settings(BaseSettings):
     email_password_c: str | None = None
     email_smtp_host: str = "smtp.gmail.com"
     email_smtp_port: int = 587
-    email_sender_name: str = "Interview Detect"
+    email_sender_name: str = "Kandidatex"
     # Link used by the buttons in the emails.
-    app_url: str = "https://speedychat.io"
+    app_url: str = "https://www.kandidatex.com/dashboard"
 
     # Interactive docs at /docs and /redoc, schema at /openapi.json.
     docs_enabled: bool = True

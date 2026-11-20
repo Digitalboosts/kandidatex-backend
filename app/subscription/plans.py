@@ -20,7 +20,7 @@ class Plan:
 
 MONTHLY_PLAN = Plan(
     code="monthly_100",
-    name="Interview Detect Monthly",
+    name="Kandidatex Monthly",
     description="50 monitored interviews for 30 days. One-time payment, no auto-renewal.",
     amount=10 * 100,
     currency="INR",
