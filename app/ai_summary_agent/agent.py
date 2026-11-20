@@ -17,6 +17,7 @@ from .prompts import MAX_WORDS, MIN_WORDS, RETRY_PROMPT, SYSTEM_PROMPT, USER_PRO
 logger = logging.getLogger("app.ai_summary_agent")
 
 MAX_ALERTS_SENT = 60  # keeps the prompt small on very long interviews
+MAX_COMPLETION_TOKENS = 4000  # reasoning tokens + the ~150-token summary
 
 
 class SummaryError(Exception):
@@ -111,7 +112,8 @@ class SummaryAgent:
         if not (self._api_key and self._base_url and self._model):
             raise SummaryError("ai_not_configured", "The summary model is not configured")
         headers = {"api-key": self._api_key, "Authorization": f"Bearer {self._api_key}"}
-        payload = {"model": self._model, "messages": messages, "max_completion_tokens": 600}
+        # A reasoning model spends part of this budget thinking; 600 left nothing for the answer (empty content).
+        payload = {"model": self._model, "messages": messages, "max_completion_tokens": MAX_COMPLETION_TOKENS}
         client = self._client or httpx.AsyncClient()
         self._client = client
         try:
